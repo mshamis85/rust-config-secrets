@@ -183,10 +183,7 @@ mod tests {
     fn test_decrypt_value_invalid_encoding() {
         let key = generate_key();
         let err = decrypt_value("invalid-encoding!", &key).unwrap_err();
-        match err {
-            ConfigSecretsError::InvalidEncoding(_) => assert!(true),
-            _ => panic!("Expected InvalidEncoding error"),
-        }
+        assert!(matches!(err, ConfigSecretsError::InvalidEncoding(_)));
     }
 
     #[test]
