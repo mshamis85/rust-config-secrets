@@ -1,4 +1,4 @@
-use rust_config_secrets::{encrypt_secrets, decrypt_secrets, generate_key, ConfigSecretsError};
+use rust_config_secrets::{ConfigSecretsError, decrypt_secrets, encrypt_secrets, generate_key};
 
 #[test]
 fn test_public_api_flow() {
@@ -38,10 +38,10 @@ fn test_public_api_flow() {
 fn test_error_handling() {
     let key = generate_key();
     let bad_config = "some_value: SECRET(invalid_encoding_$$$)";
-    
+
     let result = decrypt_secrets(bad_config, &key);
     assert!(result.is_err());
-    
+
     match result.unwrap_err() {
         ConfigSecretsError::InvalidEncoding(_) => (), // Expected
         _ => panic!("Wrong error type returned"),

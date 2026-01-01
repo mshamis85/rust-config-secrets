@@ -30,18 +30,10 @@
 
 mod config;
 mod crypto;
-mod alphanumeric_encoding;
 mod error;
 
 pub use config::{
-    decrypt_secrets,
-    decrypt_file,
-    decrypt_value,
-    encrypt_secrets,
-    encrypt_secrets_to_file,
-    encrypt_file,
-    encrypt_file_in_place,
-    encrypt_value,
-    generate_key,
+    decrypt_file, decrypt_secrets, decrypt_value, encrypt_file, encrypt_file_in_place,
+    encrypt_secrets, encrypt_secrets_to_file, encrypt_value, generate_key,
 };
 pub use error::ConfigSecretsError;

@@ -1,7 +1,5 @@
 use clap::{Parser, Subcommand};
-use rust_config_secrets::{
-    decrypt_file, encrypt_file, encrypt_file_in_place, generate_key,
-};
+use rust_config_secrets::{decrypt_file, encrypt_file, encrypt_file_in_place, generate_key};
 use std::path::PathBuf;
 use std::process;
 
@@ -89,26 +87,24 @@ fn main() {
                 eprintln!("File encrypted successfully.");
             }
         }
-        Commands::DecryptFile { path, key, output } => {
-            match decrypt_file(&path, &key) {
-                Ok(content) => {
-                    if let Some(out_path) = output {
-                        if let Err(e) = std::fs::write(&out_path, content) {
-                            eprintln!("Error writing output file: {}", e);
-                            process::exit(1);
-                        } else {
-                            eprintln!("File decrypted successfully to {:?}", out_path);
-                        }
+        Commands::DecryptFile { path, key, output } => match decrypt_file(&path, &key) {
+            Ok(content) => {
+                if let Some(out_path) = output {
+                    if let Err(e) = std::fs::write(&out_path, content) {
+                        eprintln!("Error writing output file: {}", e);
+                        process::exit(1);
                     } else {
-                        print!("{}", content);
+                        eprintln!("File decrypted successfully to {:?}", out_path);
                     }
-                }
-                Err(e) => {
-                    eprintln!("Error decrypting file: {}", e);
-                    process::exit(1);
+                } else {
+                    print!("{}", content);
                 }
             }
-        }
+            Err(e) => {
+                eprintln!("Error decrypting file: {}", e);
+                process::exit(1);
+            }
+        },
         Commands::Encrypt { value, key } => {
             match rust_config_secrets::encrypt_value(&value, &key) {
                 Ok(encrypted) => println!("{}", encrypted),

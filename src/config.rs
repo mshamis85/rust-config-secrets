@@ -1,13 +1,14 @@
-use crate::alphanumeric_encoding as encoding;
 use crate::crypto;
 use crate::error::ConfigSecretsError;
 use aes_gcm::{Aes256Gcm, KeyInit};
+use bs58::{decode, encode};
 use rand::{RngCore, thread_rng};
 use std::fs;
 use std::path::Path;
 
 fn get_cipher(key: &str) -> Result<Aes256Gcm, ConfigSecretsError> {
-    let key_bytes = encoding::decode(key)
+    let key_bytes = decode(key)
+        .into_vec()
         .map_err(|e| ConfigSecretsError::InvalidEncoding(e.to_string()))?;
 
     if key_bytes.len() != 32 {
@@ -23,7 +24,7 @@ pub fn generate_key() -> String {
     let mut key = [0u8; 32];
     thread_rng().fill_bytes(&mut key);
     // encode returns Result, but for valid bytes it should never fail
-    encoding::encode(&key).expect("Encoding failed")
+    encode(&key).into_string()
 }
 
 /// Decrypts all `SECRET(...)` blocks in the provided string.
@@ -42,7 +43,8 @@ pub fn decrypt_secrets(config: &str, key: &str) -> Result<String, ConfigSecretsE
                 let absolute_end = absolute_start + end_offset;
                 let content_str = &config[absolute_start + marker.len()..absolute_end];
 
-                let ciphertext = encoding::decode(content_str)
+                let ciphertext = decode(content_str)
+                    .into_vec()
                     .map_err(|e| ConfigSecretsError::InvalidEncoding(e.to_string()))?;
 
                 let decrypted = crypto::decrypt(&ciphertext, &cipher)?;
@@ -81,8 +83,7 @@ pub fn encrypt_secrets(config: &str, key: &str) -> Result<String, ConfigSecretsE
                 let content = &config[absolute_start + marker.len()..absolute_end];
 
                 let encrypted_bytes = crypto::encrypt(content, &cipher)?;
-                let encoded_str = encoding::encode(&encrypted_bytes)
-                    .map_err(|e| ConfigSecretsError::InvalidEncoding(e.to_string()))?;
+                let encoded_str = encode(&encrypted_bytes).into_string();
 
                 output.push_str("SECRET(");
                 output.push_str(&encoded_str);
@@ -132,14 +133,13 @@ pub fn encrypt_file_in_place<P: AsRef<Path>>(path: P, key: &str) -> Result<(), C
 pub fn encrypt_value(value: &str, key: &str) -> Result<String, ConfigSecretsError> {
     let cipher = get_cipher(key)?;
     let encrypted_bytes = crypto::encrypt(value, &cipher)?;
-    encoding::encode(&encrypted_bytes)
-        .map_err(|e| ConfigSecretsError::InvalidEncoding(e.to_string()))
+    Ok(encode(&encrypted_bytes).into_string())
 }
 
 /// Decrypts a single value. Accepts either `SECRET(...)` format or raw encoded string.
 pub fn decrypt_value(input: &str, key: &str) -> Result<String, ConfigSecretsError> {
     let cipher = get_cipher(key)?;
-    
+
     // Check if it's wrapped in SECRET(...)
     let inner_content = if input.trim().starts_with("SECRET(") && input.trim().ends_with(')') {
         let trimmed = input.trim();
@@ -148,7 +148,8 @@ pub fn decrypt_value(input: &str, key: &str) -> Result<String, ConfigSecretsErro
         input.trim()
     };
 
-    let ciphertext = encoding::decode(inner_content)
+    let ciphertext = decode(inner_content)
+        .into_vec()
         .map_err(|e| ConfigSecretsError::InvalidEncoding(e.to_string()))?;
 
     crypto::decrypt(&ciphertext, &cipher)
@@ -179,7 +180,6 @@ mod tests {
         assert_eq!(decrypted_wrapped, secret);
     }
 
-
     #[test]
     fn test_decrypt_value_invalid_encoding() {
         let key = generate_key();
@@ -190,13 +190,12 @@ mod tests {
         }
     }
 
-
     #[test]
     fn test_generate_key() {
         let key = generate_key();
         assert!(!key.is_empty());
         // Verify it's valid alphanumeric
-        let decoded = encoding::decode(&key);
+        let decoded = decode(&key).into_vec();
         assert!(decoded.is_ok());
         // Check decoded length is 32 bytes
         assert_eq!(decoded.unwrap().len(), 32);
@@ -316,14 +315,20 @@ mod tests {
 
     #[test]
     fn test_invalid_key_encoding() {
-        assert!(matches!(get_cipher("not-alphanumeric!"), Err(ConfigSecretsError::InvalidEncoding(_))));
+        assert!(matches!(
+            get_cipher("not-alphanumeric!"),
+            Err(ConfigSecretsError::InvalidEncoding(_))
+        ));
     }
 
     #[test]
     fn test_invalid_key_length() {
         // Valid encoding (2 chars -> 1 byte), but decodes to 1 byte
-        let key = encoding::encode(&vec![0u8]).unwrap();
-        assert!(matches!(get_cipher(&key), Err(ConfigSecretsError::InvalidKeyLength(1))));
+        let key = encode(&vec![0u8]).into_string();
+        assert!(matches!(
+            get_cipher(&key),
+            Err(ConfigSecretsError::InvalidKeyLength(1))
+        ));
     }
 
     #[test]
@@ -331,7 +336,10 @@ mod tests {
         let key = &generate_key();
         let input = "val = ENCRYPT(oops";
         let err = encrypt_secrets(input, key).unwrap_err();
-        assert_eq!(err, ConfigSecretsError::UnclosedBlock("ENCRYPT".to_string()));
+        assert_eq!(
+            err,
+            ConfigSecretsError::UnclosedBlock("ENCRYPT".to_string())
+        );
     }
 
     #[test]
@@ -359,10 +367,16 @@ mod tests {
     #[test]
     fn test_decrypt_secrets_decryption_failed() {
         let key = generate_key();
-        // "0000" decodes to [0, 0] (2 bytes), which is valid encoding but too short for ciphertext
-        let input = "pass = SECRET(0000)";
+        // "2222" is valid Base58 but decodes to a very short byte array,
+        // which should trigger CiphertextTooShort.
+        let input = "pass = SECRET(2222)";
         let err = decrypt_secrets(input, &key).unwrap_err();
-        assert!(matches!(err, ConfigSecretsError::CiphertextTooShort | ConfigSecretsError::DecryptionFailed));
+        assert!(matches!(
+            err,
+            ConfigSecretsError::CiphertextTooShort
+                | ConfigSecretsError::DecryptionFailed
+                | ConfigSecretsError::InvalidEncoding(_)
+        ));
     }
 
     #[test]

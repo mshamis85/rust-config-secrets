@@ -83,20 +83,23 @@ mod tests {
     fn test_decrypt_invalid_utf8() {
         let key = Aes256Gcm::generate_key(&mut rand::thread_rng());
         let cipher = Aes256Gcm::new(&key);
-        
+
         // Manually construct a valid encryption of invalid UTF-8 bytes
         // We can't use `encrypt` because it takes &str
         // So we use the cipher directly
         let nonce = aes_gcm::Nonce::from_slice(&[0u8; 12]);
         let invalid_utf8 = vec![0xFF, 0xFF, 0xFF]; // Not valid UTF-8
-        
+
         let ciphertext = cipher.encrypt(nonce, invalid_utf8.as_ref()).unwrap();
-        
+
         let mut input = Vec::new();
         input.extend_from_slice(nonce);
         input.extend_from_slice(&ciphertext);
 
         let res = decrypt(&input, &cipher);
-        assert!(matches!(res.unwrap_err(), ConfigSecretsError::InvalidUtf8(_)));
+        assert!(matches!(
+            res.unwrap_err(),
+            ConfigSecretsError::InvalidUtf8(_)
+        ));
     }
 }

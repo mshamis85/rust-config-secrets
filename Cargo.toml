@@ -16,6 +16,7 @@ readme = "README.md"
 aes-gcm = "0.10.3"
 rand = "0.8"
 clap = { version = "4.5.53", features = ["derive"], optional = true }
+bs58 = "0.5.1"
 
 [features]
 default = []
