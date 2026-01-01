@@ -23,7 +23,6 @@ fn get_cipher(key: &str) -> Result<Aes256Gcm, ConfigSecretsError> {
 pub fn generate_key() -> String {
     let mut key = [0u8; 32];
     thread_rng().fill_bytes(&mut key);
-    // encode returns Result, but for valid bytes it should never fail
     encode(&key).into_string()
 }
 
