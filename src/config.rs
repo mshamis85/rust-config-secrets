@@ -1,7 +1,7 @@
 use crate::crypto;
 use crate::error::ConfigSecretsError;
 use aes_gcm::{Aes256Gcm, KeyInit};
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD as BASE64, Engine as _};
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD as BASE64};
 use rand::{RngCore, thread_rng};
 use std::fs;
 use std::path::Path;
@@ -88,7 +88,7 @@ pub fn encrypt_secrets(config: &str, key: &str) -> Result<String, ConfigSecretsE
 
                 output.push_str("SECRET(");
                 output.push_str(&base64_str);
-                output.push_str(")");
+                output.push(')');
 
                 cursor = absolute_end + 1;
             }
@@ -141,7 +141,7 @@ mod tests {
         // Verify it's valid base64
         assert!(BASE64.decode(&key).is_ok());
         // Check approximate length for 32 bytes in base64 no pad (43 chars)
-        assert_eq!(key.len(), 43); 
+        assert_eq!(key.len(), 43);
     }
 
     #[test]

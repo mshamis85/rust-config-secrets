@@ -2,6 +2,12 @@
 name = "rust-config-secrets"
 version = "0.1.0"
 edition = "2024"
+description = "A library for encrypting and decrypting secrets within configuration files."
+license = "MIT"
+repository = "https://github.com/yourusername/rust-config-secrets"
+keywords = ["config", "secrets", "encryption", "security", "aes-gcm"]
+categories = ["config", "cryptography"]
+readme = "README.md"
 
 [dependencies]
 aes-gcm = "0.10.3"
