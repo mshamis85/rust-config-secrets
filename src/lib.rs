@@ -28,9 +28,10 @@
 //! assert!(decrypted_config.contains(r#""password": "my_secret_password""#));
 //! ```
 
-pub mod config;
+mod config;
 mod crypto;
-pub mod error;
+mod alphanumeric_encoding;
+mod error;
 
 pub use config::{
     decrypt_secrets,

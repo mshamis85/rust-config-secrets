@@ -42,14 +42,14 @@ The CLI tool allows you to manage secrets without writing any code.
 # 1. Generate a key
 KEY=$(config-secrets gen-key)
 
-# 2. Encrypt a value (prints raw base64 to stdout)
+# 2. Encrypt a value (prints raw alphanumeric string to stdout)
 config-secrets encrypt --value "my-password" --key "$KEY"
 
-# 3. Decrypt a value (accepts SECRET(...) or raw base64)
-config-secrets decrypt --value "base64-string-or-SECRET(...)" --key "$KEY"
+# 3. Decrypt a value (accepts SECRET(...) or raw alphanumeric string)
+config-secrets decrypt --value "alphanumeric-string-or-SECRET(...)" --key "$KEY"
 
 # 4. Encrypt a file (modifies it in-place by default)
-# This will find all ENCRYPT(plaintext) and replace them with SECRET(base64)
+# This will find all ENCRYPT(plaintext) and replace them with SECRET(encoded_string)
 config-secrets encrypt-file --path config.yaml --key "$KEY"
 
 # 5. Decrypt a file to stdout
@@ -79,7 +79,7 @@ Encrypt it:
 ```rust
 use rust_config_secrets::encrypt_file_in_place;
 
-let key = "your-base64-key";
+let key = "your-alphanumeric-key";
 encrypt_file_in_place("config.yaml", key).unwrap();
 ```
 
@@ -95,14 +95,14 @@ database:
 ```rust
 use rust_config_secrets::decrypt_file;
 
-let key = "your-base64-key";
+let key = "your-alphanumeric-key";
 let config_str = decrypt_file("config.yaml", key).unwrap();
 // Now use your favorite parser (serde_json, serde_yaml, etc.) on config_str
 ```
 
 ## API Functions
 
-- `generate_key()`: Generates a random 32-byte AES key (base64 encoded).
+- `generate_key()`: Generates a random 32-byte AES key (alphanumeric encoded).
 - `encrypt_secrets(config, key)`: Encrypts `ENCRYPT()` blocks in a string.
 - `decrypt_secrets(config, key)`: Decrypts `SECRET()` blocks in a string.
 - `encrypt_file(input, output, key)`: Reads from input, encrypts, writes to output.

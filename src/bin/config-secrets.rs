@@ -45,7 +45,7 @@ enum Commands {
         #[arg(long)]
         output: Option<PathBuf>,
     },
-    /// Encrypts a raw value and outputs the base64 encoded ciphertext
+    /// Encrypts a raw value and outputs the alphanumeric encoded ciphertext
     Encrypt {
         /// The raw value to encrypt
         #[arg(long)]
@@ -55,9 +55,9 @@ enum Commands {
         #[arg(long)]
         key: String,
     },
-    /// Decrypts a SECRET(...) string or a raw base64 string
+    /// Decrypts a SECRET(...) string or a raw encoded string
     Decrypt {
-        /// The value to decrypt (either SECRET(...) or raw base64)
+        /// The value to decrypt (either SECRET(...) or raw encoded string)
         #[arg(long)]
         value: String,
 

@@ -9,8 +9,8 @@ pub enum ConfigSecretsError {
     DecryptionFailed,
     /// The ciphertext is too short to contain a valid nonce.
     CiphertextTooShort,
-    /// The provided string is not valid base64.
-    InvalidBase64(String),
+    /// The provided string is not valid alphanumeric encoding.
+    InvalidEncoding(String),
     /// The provided key has an invalid length (expected 32 bytes).
     InvalidKeyLength(usize),
     /// The decrypted data is not valid UTF-8.
@@ -27,7 +27,7 @@ impl fmt::Display for ConfigSecretsError {
             Self::EncryptionFailed => write!(f, "Encryption failed"),
             Self::DecryptionFailed => write!(f, "Decryption failed"),
             Self::CiphertextTooShort => write!(f, "Ciphertext too short"),
-            Self::InvalidBase64(e) => write!(f, "Invalid base64: {}", e),
+            Self::InvalidEncoding(e) => write!(f, "Invalid encoding: {}", e),
             Self::InvalidKeyLength(l) => write!(f, "Invalid key length: {} (expected 32)", l),
             Self::InvalidUtf8(e) => write!(f, "Invalid UTF-8: {}", e),
             Self::UnclosedBlock(m) => write!(f, "Unclosed block: {}", m),
@@ -47,7 +47,7 @@ mod tests {
         assert_eq!(ConfigSecretsError::EncryptionFailed.to_string(), "Encryption failed");
         assert_eq!(ConfigSecretsError::DecryptionFailed.to_string(), "Decryption failed");
         assert_eq!(ConfigSecretsError::CiphertextTooShort.to_string(), "Ciphertext too short");
-        assert_eq!(ConfigSecretsError::InvalidBase64("bad".into()).to_string(), "Invalid base64: bad");
+        assert_eq!(ConfigSecretsError::InvalidEncoding("bad".into()).to_string(), "Invalid encoding: bad");
         assert_eq!(ConfigSecretsError::InvalidKeyLength(10).to_string(), "Invalid key length: 10 (expected 32)");
         assert_eq!(ConfigSecretsError::InvalidUtf8("bad utf8".into()).to_string(), "Invalid UTF-8: bad utf8");
         assert_eq!(ConfigSecretsError::UnclosedBlock("tag".into()).to_string(), "Unclosed block: tag");

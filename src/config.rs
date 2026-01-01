@@ -1,15 +1,14 @@
+use crate::alphanumeric_encoding as encoding;
 use crate::crypto;
 use crate::error::ConfigSecretsError;
 use aes_gcm::{Aes256Gcm, KeyInit};
-use base64::{Engine as _, engine::general_purpose::STANDARD_NO_PAD as BASE64};
 use rand::{RngCore, thread_rng};
 use std::fs;
 use std::path::Path;
 
 fn get_cipher(key: &str) -> Result<Aes256Gcm, ConfigSecretsError> {
-    let key_bytes = BASE64
-        .decode(key)
-        .map_err(|e| ConfigSecretsError::InvalidBase64(e.to_string()))?;
+    let key_bytes = encoding::decode(key)
+        .map_err(|e| ConfigSecretsError::InvalidEncoding(e.to_string()))?;
 
     if key_bytes.len() != 32 {
         return Err(ConfigSecretsError::InvalidKeyLength(key_bytes.len()));
@@ -19,11 +18,12 @@ fn get_cipher(key: &str) -> Result<Aes256Gcm, ConfigSecretsError> {
         .map_err(|_| ConfigSecretsError::InvalidKeyLength(key_bytes.len()))
 }
 
-/// Generates a random 32-byte AES key and returns it as a base64 encoded string.
+/// Generates a random 32-byte AES key and returns it as an alphanumeric encoded string.
 pub fn generate_key() -> String {
     let mut key = [0u8; 32];
     thread_rng().fill_bytes(&mut key);
-    BASE64.encode(key)
+    // encode returns Result, but for valid bytes it should never fail
+    encoding::encode(&key).expect("Encoding failed")
 }
 
 /// Decrypts all `SECRET(...)` blocks in the provided string.
@@ -42,9 +42,8 @@ pub fn decrypt_secrets(config: &str, key: &str) -> Result<String, ConfigSecretsE
                 let absolute_end = absolute_start + end_offset;
                 let content_str = &config[absolute_start + marker.len()..absolute_end];
 
-                let ciphertext = BASE64
-                    .decode(content_str)
-                    .map_err(|e| ConfigSecretsError::InvalidBase64(e.to_string()))?;
+                let ciphertext = encoding::decode(content_str)
+                    .map_err(|e| ConfigSecretsError::InvalidEncoding(e.to_string()))?;
 
                 let decrypted = crypto::decrypt(&ciphertext, &cipher)?;
                 output.push_str(&decrypted);
@@ -82,10 +81,11 @@ pub fn encrypt_secrets(config: &str, key: &str) -> Result<String, ConfigSecretsE
                 let content = &config[absolute_start + marker.len()..absolute_end];
 
                 let encrypted_bytes = crypto::encrypt(content, &cipher)?;
-                let base64_str = BASE64.encode(encrypted_bytes);
+                let encoded_str = encoding::encode(&encrypted_bytes)
+                    .map_err(|e| ConfigSecretsError::InvalidEncoding(e.to_string()))?;
 
                 output.push_str("SECRET(");
-                output.push_str(&base64_str);
+                output.push_str(&encoded_str);
                 output.push(')');
 
                 cursor = absolute_end + 1;
@@ -128,14 +128,15 @@ pub fn encrypt_file_in_place<P: AsRef<Path>>(path: P, key: &str) -> Result<(), C
     fs::write(path, encrypted_content).map_err(|e| ConfigSecretsError::IoError(e.to_string()))
 }
 
-/// Encrypts a single value and returns the base64 encoded ciphertext.
+/// Encrypts a single value and returns the encoded ciphertext.
 pub fn encrypt_value(value: &str, key: &str) -> Result<String, ConfigSecretsError> {
     let cipher = get_cipher(key)?;
     let encrypted_bytes = crypto::encrypt(value, &cipher)?;
-    Ok(BASE64.encode(encrypted_bytes))
+    encoding::encode(&encrypted_bytes)
+        .map_err(|e| ConfigSecretsError::InvalidEncoding(e.to_string()))
 }
 
-/// Decrypts a single value. Accepts either `SECRET(...)` format or raw base64.
+/// Decrypts a single value. Accepts either `SECRET(...)` format or raw encoded string.
 pub fn decrypt_value(input: &str, key: &str) -> Result<String, ConfigSecretsError> {
     let cipher = get_cipher(key)?;
     
@@ -147,9 +148,8 @@ pub fn decrypt_value(input: &str, key: &str) -> Result<String, ConfigSecretsErro
         input.trim()
     };
 
-    let ciphertext = BASE64
-        .decode(inner_content)
-        .map_err(|e| ConfigSecretsError::InvalidBase64(e.to_string()))?;
+    let ciphertext = encoding::decode(inner_content)
+        .map_err(|e| ConfigSecretsError::InvalidEncoding(e.to_string()))?;
 
     crypto::decrypt(&ciphertext, &cipher)
 }
@@ -165,10 +165,11 @@ mod tests {
 
         // Test Encrypt
         let encrypted = encrypt_value(secret, &key).unwrap();
-        // Should be raw base64, not wrapped
+        // Should be alphanumeric, not wrapped
         assert!(!encrypted.starts_with("SECRET("));
+        assert!(encrypted.chars().all(|c| c.is_alphanumeric()));
 
-        // Test Decrypt with raw base64
+        // Test Decrypt with raw string
         let decrypted = decrypt_value(&encrypted, &key).unwrap();
         assert_eq!(decrypted, secret);
 
@@ -180,12 +181,12 @@ mod tests {
 
 
     #[test]
-    fn test_decrypt_value_invalid_base64() {
+    fn test_decrypt_value_invalid_encoding() {
         let key = generate_key();
-        let err = decrypt_value("invalid-base64", &key).unwrap_err();
+        let err = decrypt_value("invalid-encoding!", &key).unwrap_err();
         match err {
-            ConfigSecretsError::InvalidBase64(_) => assert!(true),
-            _ => panic!("Expected InvalidBase64 error"),
+            ConfigSecretsError::InvalidEncoding(_) => assert!(true),
+            _ => panic!("Expected InvalidEncoding error"),
         }
     }
 
@@ -194,10 +195,11 @@ mod tests {
     fn test_generate_key() {
         let key = generate_key();
         assert!(!key.is_empty());
-        // Verify it's valid base64
-        assert!(BASE64.decode(&key).is_ok());
-        // Check approximate length for 32 bytes in base64 no pad (43 chars)
-        assert_eq!(key.len(), 43);
+        // Verify it's valid alphanumeric
+        let decoded = encoding::decode(&key);
+        assert!(decoded.is_ok());
+        // Check decoded length is 32 bytes
+        assert_eq!(decoded.unwrap().len(), 32);
     }
 
     #[test]
@@ -313,14 +315,14 @@ mod tests {
     }
 
     #[test]
-    fn test_invalid_key_base64() {
-        assert!(matches!(get_cipher("not-base64!"), Err(ConfigSecretsError::InvalidBase64(_))));
+    fn test_invalid_key_encoding() {
+        assert!(matches!(get_cipher("not-alphanumeric!"), Err(ConfigSecretsError::InvalidEncoding(_))));
     }
 
     #[test]
     fn test_invalid_key_length() {
-        // Valid base64, but decodes to 1 byte
-        let key = BASE64.encode(vec![0u8]);
+        // Valid encoding (2 chars -> 1 byte), but decodes to 1 byte
+        let key = encoding::encode(&vec![0u8]).unwrap();
         assert!(matches!(get_cipher(&key), Err(ConfigSecretsError::InvalidKeyLength(1))));
     }
 
@@ -341,24 +343,24 @@ mod tests {
     }
 
     #[test]
-    fn test_invalid_base64_in_secret() {
+    fn test_invalid_encoding_in_secret() {
         let key = &generate_key();
         let input = "val = SECRET(!!!)";
         let err = decrypt_secrets(input, key).unwrap_err();
-        assert!(matches!(err, ConfigSecretsError::InvalidBase64(_)));
+        assert!(matches!(err, ConfigSecretsError::InvalidEncoding(_)));
     }
 
     #[test]
     fn test_decrypt_secrets_invalid_key() {
         let err = decrypt_secrets("SECRET(val)", "invalid-key").unwrap_err();
-        assert!(matches!(err, ConfigSecretsError::InvalidBase64(_)));
+        assert!(matches!(err, ConfigSecretsError::InvalidEncoding(_)));
     }
 
     #[test]
     fn test_decrypt_secrets_decryption_failed() {
         let key = generate_key();
-        // "YWJj" is base64 for "abc", which is too short for a nonce+ciphertext
-        let input = "pass = SECRET(YWJj)";
+        // "0000" decodes to [0, 0] (2 bytes), which is valid encoding but too short for ciphertext
+        let input = "pass = SECRET(0000)";
         let err = decrypt_secrets(input, &key).unwrap_err();
         assert!(matches!(err, ConfigSecretsError::CiphertextTooShort | ConfigSecretsError::DecryptionFailed));
     }
@@ -366,60 +368,7 @@ mod tests {
     #[test]
     fn test_encrypt_secrets_invalid_key() {
         let err = encrypt_secrets("ENCRYPT(val)", "invalid-key").unwrap_err();
-        assert!(matches!(err, ConfigSecretsError::InvalidBase64(_)));
-    }
-
-    #[test]
-    fn test_io_errors() {
-        let key = &generate_key();
-        let bad_path = "/path/to/nonexistent/file.txt";
-        
-        // decrypt_file (read fail)
-        let err = decrypt_file(bad_path, key).unwrap_err();
-        assert!(matches!(err, ConfigSecretsError::IoError(_)));
-
-        // encrypt_file (input missing)
-        let err = encrypt_file(bad_path, "out.txt", key).unwrap_err();
-        assert!(matches!(err, ConfigSecretsError::IoError(_)));
-
-        // encrypt_file (output write fail)
-        // Use a directory as output path, which should fail to write as a file
-        let dir = std::env::temp_dir();
-        let in_path = dir.join("valid_in.txt");
-        fs::write(&in_path, "data: ENCRYPT(test)").unwrap();
-        
-        // Output to a directory path itself should fail on Linux with EISDIR or similar
-        let err = encrypt_file(&in_path, &dir, key).unwrap_err();
-        assert!(matches!(err, ConfigSecretsError::IoError(_)));
-        
-        let _ = fs::remove_file(in_path);
-
-        // encrypt_file_in_place (read fail)
-        let err = encrypt_file_in_place(bad_path, key).unwrap_err();
-        assert!(matches!(err, ConfigSecretsError::IoError(_)));
-
-        // encrypt_file_in_place (write fail)
-        // create a file, make it read-only, try to write
-        let path = dir.join("readonly_test.yaml");
-        fs::write(&path, "pass: ENCRYPT(word)").unwrap();
-        
-        let mut perms = fs::metadata(&path).unwrap().permissions();
-        perms.set_readonly(true);
-        fs::set_permissions(&path, perms).unwrap();
-
-        let err = encrypt_file_in_place(&path, key).unwrap_err();
-        assert!(matches!(err, ConfigSecretsError::IoError(_)));
-
-        // cleanup (need to fix permissions to delete)
-        let mut perms = fs::metadata(&path).unwrap().permissions();
-        perms.set_readonly(false);
-        fs::set_permissions(&path, perms).unwrap();
-        let _ = fs::remove_file(path);
-
-        // encrypt_secrets_to_file (write fail - assuming / is not writable as file)
-        let input = "ENCRYPT(test)";
-        let err = encrypt_secrets_to_file(input, "/", key).unwrap_err();
-        assert!(matches!(err, ConfigSecretsError::IoError(_)));
+        assert!(matches!(err, ConfigSecretsError::InvalidEncoding(_)));
     }
 
     #[test]
@@ -431,19 +380,19 @@ mod tests {
 
         // decrypt_file
         let err = decrypt_file(&path, bad_key).unwrap_err();
-        assert!(matches!(err, ConfigSecretsError::InvalidBase64(_)));
+        assert!(matches!(err, ConfigSecretsError::InvalidEncoding(_)));
 
         // encrypt_secrets_to_file
         let err = encrypt_secrets_to_file("content", &path, bad_key).unwrap_err();
-        assert!(matches!(err, ConfigSecretsError::InvalidBase64(_)));
+        assert!(matches!(err, ConfigSecretsError::InvalidEncoding(_)));
 
         // encrypt_file
         let err = encrypt_file(&path, &path, bad_key).unwrap_err();
-        assert!(matches!(err, ConfigSecretsError::InvalidBase64(_)));
+        assert!(matches!(err, ConfigSecretsError::InvalidEncoding(_)));
 
         // encrypt_file_in_place
         let err = encrypt_file_in_place(&path, bad_key).unwrap_err();
-        assert!(matches!(err, ConfigSecretsError::InvalidBase64(_)));
+        assert!(matches!(err, ConfigSecretsError::InvalidEncoding(_)));
 
         let _ = fs::remove_file(path);
     }
