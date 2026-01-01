@@ -15,7 +15,8 @@ fn get_cipher(key: &str) -> Result<Aes256Gcm, ConfigSecretsError> {
         return Err(ConfigSecretsError::InvalidKeyLength(key_bytes.len()));
     }
 
-    Aes256Gcm::new_from_slice(&key_bytes).map_err(|_| ConfigSecretsError::EncryptionFailed)
+    // Length is checked, so unwrapping new_from_slice is safe.
+    Ok(Aes256Gcm::new_from_slice(&key_bytes).unwrap())
 }
 
 /// Generates a random 32-byte AES key and returns it as a base64 encoded string.
@@ -80,7 +81,7 @@ pub fn encrypt_secrets(config: &str, key: &str) -> Result<String, ConfigSecretsE
                 let absolute_end = absolute_start + end_offset;
                 let content = &config[absolute_start + marker.len()..absolute_end];
 
-                let encrypted_bytes = crypto::encrypt(content, &cipher)?;
+                let encrypted_bytes = crypto::encrypt(content, &cipher);
                 let base64_str = BASE64.encode(encrypted_bytes);
 
                 output.push_str("SECRET(");
@@ -251,5 +252,132 @@ mod tests {
         assert!(decrypted.contains(r#"secret1 = "one""#));
         assert!(decrypted.contains(r#"secret2 = "two""#));
         assert!(decrypted.contains(r#"also_visible = 123"#));
+    }
+
+    #[test]
+    fn test_invalid_key_base64() {
+        assert!(matches!(get_cipher("not-base64!"), Err(ConfigSecretsError::InvalidBase64(_))));
+    }
+
+    #[test]
+    fn test_invalid_key_length() {
+        // Valid base64, but decodes to 1 byte
+        let key = BASE64.encode(vec![0u8]);
+        assert!(matches!(get_cipher(&key), Err(ConfigSecretsError::InvalidKeyLength(1))));
+    }
+
+    #[test]
+    fn test_unclosed_encrypt_block() {
+        let key = &generate_key();
+        let input = "val = ENCRYPT(oops";
+        let err = encrypt_secrets(input, key).unwrap_err();
+        assert_eq!(err, ConfigSecretsError::UnclosedBlock("ENCRYPT".to_string()));
+    }
+
+    #[test]
+    fn test_unclosed_secret_block() {
+        let key = &generate_key();
+        let input = "val = SECRET(oops";
+        let err = decrypt_secrets(input, key).unwrap_err();
+        assert_eq!(err, ConfigSecretsError::UnclosedBlock("SECRET".to_string()));
+    }
+
+    #[test]
+    fn test_invalid_base64_in_secret() {
+        let key = &generate_key();
+        let input = "val = SECRET(!!!)";
+        let err = decrypt_secrets(input, key).unwrap_err();
+        assert!(matches!(err, ConfigSecretsError::InvalidBase64(_)));
+    }
+
+    #[test]
+    fn test_decrypt_secrets_invalid_key() {
+        let err = decrypt_secrets("SECRET(val)", "invalid-key").unwrap_err();
+        assert!(matches!(err, ConfigSecretsError::InvalidBase64(_)));
+    }
+
+    #[test]
+    fn test_encrypt_secrets_invalid_key() {
+        let err = encrypt_secrets("ENCRYPT(val)", "invalid-key").unwrap_err();
+        assert!(matches!(err, ConfigSecretsError::InvalidBase64(_)));
+    }
+
+    #[test]
+    fn test_io_errors() {
+        let key = &generate_key();
+        let bad_path = "/path/to/nonexistent/file.txt";
+        
+        // decrypt_file (read fail)
+        let err = decrypt_file(bad_path, key).unwrap_err();
+        assert!(matches!(err, ConfigSecretsError::IoError(_)));
+
+        // encrypt_file (input missing)
+        let err = encrypt_file(bad_path, "out.txt", key).unwrap_err();
+        assert!(matches!(err, ConfigSecretsError::IoError(_)));
+
+        // encrypt_file (output write fail)
+        // Use a directory as output path, which should fail to write as a file
+        let dir = std::env::temp_dir();
+        let in_path = dir.join("valid_in.txt");
+        fs::write(&in_path, "data: ENCRYPT(test)").unwrap();
+        
+        // Output to a directory path itself should fail on Linux with EISDIR or similar
+        let err = encrypt_file(&in_path, &dir, key).unwrap_err();
+        assert!(matches!(err, ConfigSecretsError::IoError(_)));
+        
+        let _ = fs::remove_file(in_path);
+
+        // encrypt_file_in_place (read fail)
+        let err = encrypt_file_in_place(bad_path, key).unwrap_err();
+        assert!(matches!(err, ConfigSecretsError::IoError(_)));
+
+        // encrypt_file_in_place (write fail)
+        // create a file, make it read-only, try to write
+        let path = dir.join("readonly_test.yaml");
+        fs::write(&path, "pass: ENCRYPT(word)").unwrap();
+        
+        let mut perms = fs::metadata(&path).unwrap().permissions();
+        perms.set_readonly(true);
+        fs::set_permissions(&path, perms).unwrap();
+
+        let err = encrypt_file_in_place(&path, key).unwrap_err();
+        assert!(matches!(err, ConfigSecretsError::IoError(_)));
+
+        // cleanup (need to fix permissions to delete)
+        let mut perms = fs::metadata(&path).unwrap().permissions();
+        perms.set_readonly(false);
+        fs::set_permissions(&path, perms).unwrap();
+        let _ = fs::remove_file(path);
+
+        // encrypt_secrets_to_file (write fail - assuming / is not writable as file)
+        let input = "ENCRYPT(test)";
+        let err = encrypt_secrets_to_file(input, "/", key).unwrap_err();
+        assert!(matches!(err, ConfigSecretsError::IoError(_)));
+    }
+
+    #[test]
+    fn test_file_funcs_invalid_key() {
+        let bad_key = "invalid-key";
+        let dir = std::env::temp_dir();
+        let path = dir.join("dummy_config.txt");
+        fs::write(&path, "content").unwrap();
+
+        // decrypt_file
+        let err = decrypt_file(&path, bad_key).unwrap_err();
+        assert!(matches!(err, ConfigSecretsError::InvalidBase64(_)));
+
+        // encrypt_secrets_to_file
+        let err = encrypt_secrets_to_file("content", &path, bad_key).unwrap_err();
+        assert!(matches!(err, ConfigSecretsError::InvalidBase64(_)));
+
+        // encrypt_file
+        let err = encrypt_file(&path, &path, bad_key).unwrap_err();
+        assert!(matches!(err, ConfigSecretsError::InvalidBase64(_)));
+
+        // encrypt_file_in_place
+        let err = encrypt_file_in_place(&path, bad_key).unwrap_err();
+        assert!(matches!(err, ConfigSecretsError::InvalidBase64(_)));
+
+        let _ = fs::remove_file(path);
     }
 }

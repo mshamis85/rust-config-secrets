@@ -2,20 +2,19 @@ use crate::error::ConfigSecretsError;
 use aes_gcm::{Aes256Gcm, Nonce, aead::Aead};
 use rand::RngCore;
 
-pub fn encrypt(plaintext: &str, cipher: &Aes256Gcm) -> Result<Vec<u8>, ConfigSecretsError> {
+pub fn encrypt(plaintext: &str, cipher: &Aes256Gcm) -> Vec<u8> {
     let mut nonce_bytes = [0u8; 12];
     rand::thread_rng().fill_bytes(&mut nonce_bytes);
     let nonce = Nonce::from_slice(&nonce_bytes);
 
-    match cipher.encrypt(nonce, plaintext.as_bytes()) {
-        Ok(ciphertext) => {
-            let mut result = Vec::with_capacity(nonce_bytes.len() + ciphertext.len());
-            result.extend_from_slice(&nonce_bytes);
-            result.extend_from_slice(&ciphertext);
-            Ok(result)
-        }
-        Err(_) => Err(ConfigSecretsError::EncryptionFailed),
-    }
+    let ciphertext = cipher
+        .encrypt(nonce, plaintext.as_bytes())
+        .expect("Encryption failed");
+
+    let mut result = Vec::with_capacity(nonce_bytes.len() + ciphertext.len());
+    result.extend_from_slice(&nonce_bytes);
+    result.extend_from_slice(&ciphertext);
+    result
 }
 
 pub fn decrypt(
@@ -48,7 +47,7 @@ mod tests {
         let cipher = Aes256Gcm::new(&key);
         let plaintext = "Hello, World!";
 
-        let encrypted = encrypt(plaintext, &cipher).expect("Encrypt failed");
+        let encrypted = encrypt(plaintext, &cipher);
         let decrypted = decrypt(&encrypted, &cipher).expect("Decrypt failed");
 
         assert_eq!(plaintext, decrypted);
@@ -63,5 +62,41 @@ mod tests {
         let res = decrypt(&short_data, &cipher);
         assert!(res.is_err());
         assert_eq!(res.unwrap_err(), ConfigSecretsError::CiphertextTooShort);
+    }
+
+    #[test]
+    fn test_decryption_integrity() {
+        let key = Aes256Gcm::generate_key(&mut rand::thread_rng());
+        let cipher = Aes256Gcm::new(&key);
+        let plaintext = "Sensitive Data";
+
+        let mut encrypted = encrypt(plaintext, &cipher);
+        // Tamper with the ciphertext (last byte)
+        let len = encrypted.len();
+        encrypted[len - 1] ^= 0x01;
+
+        let res = decrypt(&encrypted, &cipher);
+        assert_eq!(res.unwrap_err(), ConfigSecretsError::DecryptionFailed);
+    }
+
+    #[test]
+    fn test_decrypt_invalid_utf8() {
+        let key = Aes256Gcm::generate_key(&mut rand::thread_rng());
+        let cipher = Aes256Gcm::new(&key);
+        
+        // Manually construct a valid encryption of invalid UTF-8 bytes
+        // We can't use `encrypt` because it takes &str
+        // So we use the cipher directly
+        let nonce = aes_gcm::Nonce::from_slice(&[0u8; 12]);
+        let invalid_utf8 = vec![0xFF, 0xFF, 0xFF]; // Not valid UTF-8
+        
+        let ciphertext = cipher.encrypt(nonce, invalid_utf8.as_ref()).unwrap();
+        
+        let mut input = Vec::new();
+        input.extend_from_slice(nonce);
+        input.extend_from_slice(&ciphertext);
+
+        let res = decrypt(&input, &cipher);
+        assert!(matches!(res.unwrap_err(), ConfigSecretsError::InvalidUtf8(_)));
     }
 }
