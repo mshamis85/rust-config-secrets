@@ -1,14 +1,23 @@
 use std::fmt;
 
-#[derive(Debug, PartialEq)]
+/// Errors that can occur during configuration secret management.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConfigSecretsError {
+    /// Failed to encrypt the data.
     EncryptionFailed,
+    /// Failed to decrypt the data (e.g., wrong key or tampered ciphertext).
     DecryptionFailed,
+    /// The ciphertext is too short to contain a valid nonce.
     CiphertextTooShort,
+    /// The provided string is not valid base64.
     InvalidBase64(String),
+    /// The provided key has an invalid length (expected 32 bytes).
     InvalidKeyLength(usize),
+    /// The decrypted data is not valid UTF-8.
     InvalidUtf8(String),
+    /// A marker block (e.g., `ENCRYPT(` or `SECRET(`) was not properly closed.
     UnclosedBlock(String),
+    /// An I/O error occurred while reading or writing a file.
     IoError(String),
 }
 

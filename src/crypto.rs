@@ -2,19 +2,19 @@ use crate::error::ConfigSecretsError;
 use aes_gcm::{Aes256Gcm, Nonce, aead::Aead};
 use rand::RngCore;
 
-pub fn encrypt(plaintext: &str, cipher: &Aes256Gcm) -> Vec<u8> {
+pub fn encrypt(plaintext: &str, cipher: &Aes256Gcm) -> Result<Vec<u8>, ConfigSecretsError> {
     let mut nonce_bytes = [0u8; 12];
     rand::thread_rng().fill_bytes(&mut nonce_bytes);
     let nonce = Nonce::from_slice(&nonce_bytes);
 
     let ciphertext = cipher
         .encrypt(nonce, plaintext.as_bytes())
-        .expect("Encryption failed");
+        .map_err(|_| ConfigSecretsError::EncryptionFailed)?;
 
     let mut result = Vec::with_capacity(nonce_bytes.len() + ciphertext.len());
     result.extend_from_slice(&nonce_bytes);
     result.extend_from_slice(&ciphertext);
-    result
+    Ok(result)
 }
 
 pub fn decrypt(
@@ -47,7 +47,7 @@ mod tests {
         let cipher = Aes256Gcm::new(&key);
         let plaintext = "Hello, World!";
 
-        let encrypted = encrypt(plaintext, &cipher);
+        let encrypted = encrypt(plaintext, &cipher).expect("Encrypt failed");
         let decrypted = decrypt(&encrypted, &cipher).expect("Decrypt failed");
 
         assert_eq!(plaintext, decrypted);
@@ -70,7 +70,7 @@ mod tests {
         let cipher = Aes256Gcm::new(&key);
         let plaintext = "Sensitive Data";
 
-        let mut encrypted = encrypt(plaintext, &cipher);
+        let mut encrypted = encrypt(plaintext, &cipher).expect("Encrypt failed");
         // Tamper with the ciphertext (last byte)
         let len = encrypted.len();
         encrypted[len - 1] ^= 0x01;

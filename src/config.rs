@@ -15,8 +15,8 @@ fn get_cipher(key: &str) -> Result<Aes256Gcm, ConfigSecretsError> {
         return Err(ConfigSecretsError::InvalidKeyLength(key_bytes.len()));
     }
 
-    // Length is checked, so unwrapping new_from_slice is safe.
-    Ok(Aes256Gcm::new_from_slice(&key_bytes).unwrap())
+    Aes256Gcm::new_from_slice(&key_bytes)
+        .map_err(|_| ConfigSecretsError::InvalidKeyLength(key_bytes.len()))
 }
 
 /// Generates a random 32-byte AES key and returns it as a base64 encoded string.
@@ -81,7 +81,7 @@ pub fn encrypt_secrets(config: &str, key: &str) -> Result<String, ConfigSecretsE
                 let absolute_end = absolute_start + end_offset;
                 let content = &config[absolute_start + marker.len()..absolute_end];
 
-                let encrypted_bytes = crypto::encrypt(content, &cipher);
+                let encrypted_bytes = crypto::encrypt(content, &cipher)?;
                 let base64_str = BASE64.encode(encrypted_bytes);
 
                 output.push_str("SECRET(");
@@ -131,7 +131,7 @@ pub fn encrypt_file_in_place<P: AsRef<Path>>(path: P, key: &str) -> Result<(), C
 /// Encrypts a single value and returns the base64 encoded ciphertext.
 pub fn encrypt_value(value: &str, key: &str) -> Result<String, ConfigSecretsError> {
     let cipher = get_cipher(key)?;
-    let encrypted_bytes = crypto::encrypt(value, &cipher);
+    let encrypted_bytes = crypto::encrypt(value, &cipher)?;
     Ok(BASE64.encode(encrypted_bytes))
 }
 
