@@ -29,7 +29,7 @@
 //! ```
 
 pub mod config;
-pub mod crypto;
+mod crypto;
 pub mod error;
 
 pub use config::{
