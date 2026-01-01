@@ -19,11 +19,41 @@ A lightweight Rust library for safely managing secrets within configuration file
 
 ## Installation
 
+### As a Library
 Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
 rust-config-secrets = "0.1.0"
+```
+
+### As a CLI Tool
+Install the `config-secrets` utility using cargo:
+
+```bash
+cargo install rust-config-secrets --features cli
+```
+
+## CLI Usage
+
+The CLI tool allows you to manage secrets without writing any code.
+
+```bash
+# 1. Generate a key
+KEY=$(config-secrets gen-key)
+
+# 2. Encrypt a value (prints raw base64 to stdout)
+config-secrets encrypt --value "my-password" --key "$KEY"
+
+# 3. Decrypt a value (accepts SECRET(...) or raw base64)
+config-secrets decrypt --value "base64-string-or-SECRET(...)" --key "$KEY"
+
+# 4. Encrypt a file (modifies it in-place by default)
+# This will find all ENCRYPT(plaintext) and replace them with SECRET(base64)
+config-secrets encrypt-file --path config.yaml --key "$KEY"
+
+# 5. Decrypt a file to stdout
+config-secrets decrypt-file --path config.yaml --key "$KEY"
 ```
 
 ## Quick Start
@@ -32,7 +62,7 @@ rust-config-secrets = "0.1.0"
 ```rust
 use rust_config_secrets::generate_key;
 
-let key = generate_key(); // Save this somewhere safe!
+let key = generate_key(); // Save this somewhere safe (e.g., environment variable)
 ```
 
 ### 2. Prepare and Encrypt your Config
@@ -49,7 +79,8 @@ Encrypt it:
 ```rust
 use rust_config_secrets::encrypt_file_in_place;
 
-encrypt_file_in_place("config.yaml", &key).unwrap();
+let key = "your-base64-key";
+encrypt_file_in_place("config.yaml", key).unwrap();
 ```
 
 Your file now looks like this:
@@ -62,10 +93,11 @@ database:
 
 ### 3. Load and Decrypt at Runtime
 ```rust
-use rust_config_secrets::load_config_from_file; // Assuming you renamed it or use decrypt_file
+use rust_config_secrets::decrypt_file;
 
-let config_str = rust_config_secrets::decrypt_file("config.yaml", &key).unwrap();
-// Now use your favorite parser (serde_json, yaml-rust, etc.) on config_str
+let key = "your-base64-key";
+let config_str = decrypt_file("config.yaml", key).unwrap();
+// Now use your favorite parser (serde_json, serde_yaml, etc.) on config_str
 ```
 
 ## API Functions

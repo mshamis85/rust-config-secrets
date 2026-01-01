@@ -13,3 +13,13 @@ readme = "README.md"
 aes-gcm = "0.10.3"
 base64 = "0.22.1"
 rand = "0.8"
+clap = { version = "4.5.53", features = ["derive"], optional = true }
+
+[features]
+default = []
+cli = ["dep:clap"]
+
+[[bin]]
+name = "config-secrets"
+path = "src/bin/config-secrets.rs"
+required-features = ["cli"]

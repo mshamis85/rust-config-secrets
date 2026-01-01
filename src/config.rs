@@ -1,7 +1,7 @@
 use crate::crypto;
 use crate::error::ConfigSecretsError;
 use aes_gcm::{Aes256Gcm, KeyInit};
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD as BASE64};
+use base64::{Engine as _, engine::general_purpose::STANDARD_NO_PAD as BASE64};
 use rand::{RngCore, thread_rng};
 use std::fs;
 use std::path::Path;
@@ -128,9 +128,67 @@ pub fn encrypt_file_in_place<P: AsRef<Path>>(path: P, key: &str) -> Result<(), C
     fs::write(path, encrypted_content).map_err(|e| ConfigSecretsError::IoError(e.to_string()))
 }
 
+/// Encrypts a single value and returns the base64 encoded ciphertext.
+pub fn encrypt_value(value: &str, key: &str) -> Result<String, ConfigSecretsError> {
+    let cipher = get_cipher(key)?;
+    let encrypted_bytes = crypto::encrypt(value, &cipher);
+    Ok(BASE64.encode(encrypted_bytes))
+}
+
+/// Decrypts a single value. Accepts either `SECRET(...)` format or raw base64.
+pub fn decrypt_value(input: &str, key: &str) -> Result<String, ConfigSecretsError> {
+    let cipher = get_cipher(key)?;
+    
+    // Check if it's wrapped in SECRET(...)
+    let inner_content = if input.trim().starts_with("SECRET(") && input.trim().ends_with(')') {
+        let trimmed = input.trim();
+        &trimmed["SECRET(".len()..trimmed.len() - 1]
+    } else {
+        input.trim()
+    };
+
+    let ciphertext = BASE64
+        .decode(inner_content)
+        .map_err(|e| ConfigSecretsError::InvalidBase64(e.to_string()))?;
+
+    crypto::decrypt(&ciphertext, &cipher)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_encrypt_decrypt_value() {
+        let key = generate_key();
+        let secret = "my-password";
+
+        // Test Encrypt
+        let encrypted = encrypt_value(secret, &key).unwrap();
+        // Should be raw base64, not wrapped
+        assert!(!encrypted.starts_with("SECRET("));
+
+        // Test Decrypt with raw base64
+        let decrypted = decrypt_value(&encrypted, &key).unwrap();
+        assert_eq!(decrypted, secret);
+
+        // Test Decrypt with wrapper
+        let wrapped = format!("SECRET({})", encrypted);
+        let decrypted_wrapped = decrypt_value(&wrapped, &key).unwrap();
+        assert_eq!(decrypted_wrapped, secret);
+    }
+
+
+    #[test]
+    fn test_decrypt_value_invalid_base64() {
+        let key = generate_key();
+        let err = decrypt_value("invalid-base64", &key).unwrap_err();
+        match err {
+            ConfigSecretsError::InvalidBase64(_) => assert!(true),
+            _ => panic!("Expected InvalidBase64 error"),
+        }
+    }
+
 
     #[test]
     fn test_generate_key() {
@@ -294,6 +352,15 @@ mod tests {
     fn test_decrypt_secrets_invalid_key() {
         let err = decrypt_secrets("SECRET(val)", "invalid-key").unwrap_err();
         assert!(matches!(err, ConfigSecretsError::InvalidBase64(_)));
+    }
+
+    #[test]
+    fn test_decrypt_secrets_decryption_failed() {
+        let key = generate_key();
+        // "YWJj" is base64 for "abc", which is too short for a nonce+ciphertext
+        let input = "pass = SECRET(YWJj)";
+        let err = decrypt_secrets(input, &key).unwrap_err();
+        assert!(matches!(err, ConfigSecretsError::CiphertextTooShort | ConfigSecretsError::DecryptionFailed));
     }
 
     #[test]
