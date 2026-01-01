@@ -7,15 +7,12 @@ use std::fs;
 use std::path::Path;
 
 fn get_cipher(key: &str) -> Result<Aes256Gcm, ConfigSecretsError> {
-    let mut key_bytes = [0u8; 32];
-    let input_bytes = key.as_bytes();
+    let key_bytes = BASE64
+        .decode(key)
+        .map_err(|e| ConfigSecretsError::InvalidBase64(e.to_string()))?;
 
-    // Simple padding/truncation to get 32 bytes
-    for (i, b) in input_bytes.iter().enumerate() {
-        if i >= 32 {
-            break;
-        }
-        key_bytes[i] = *b;
+    if key_bytes.len() != 32 {
+        return Err(ConfigSecretsError::InvalidKeyLength(key_bytes.len()));
     }
 
     Aes256Gcm::new_from_slice(&key_bytes).map_err(|_| ConfigSecretsError::EncryptionFailed)
@@ -146,7 +143,7 @@ mod tests {
 
     #[test]
     fn test_encrypt_secrets() {
-        let key = "test_key_123";
+        let key = &generate_key();
         let input = r#"{"pass": "ENCRYPT(my_secret)"}"#;
         let output = encrypt_secrets(input, key).unwrap();
 
@@ -157,7 +154,7 @@ mod tests {
 
     #[test]
     fn test_decrypt_secrets() {
-        let key = "test_key_123";
+        let key = &generate_key();
         // First encrypt to get a valid secret block
         let input = r#"{"pass": "ENCRYPT(my_secret)"}"#;
         let encrypted = encrypt_secrets(input, key).unwrap();
@@ -169,7 +166,7 @@ mod tests {
 
     #[test]
     fn test_encrypt_secrets_to_file() {
-        let key = "file_key";
+        let key = &generate_key();
         let dir = std::env::temp_dir();
         let path = dir.join("secrets_out.json");
         let input = r#"key = "ENCRYPT(value)""#;
@@ -185,7 +182,7 @@ mod tests {
 
     #[test]
     fn test_encrypt_file() {
-        let key = "file_key_2";
+        let key = &generate_key();
         let dir = std::env::temp_dir();
         let in_path = dir.join("in.json");
         let out_path = dir.join("out.json");
@@ -203,7 +200,7 @@ mod tests {
 
     #[test]
     fn test_encrypt_file_in_place() {
-        let key = "inplace_key";
+        let key = &generate_key();
         let dir = std::env::temp_dir();
         let path = dir.join("inplace_test.yaml");
 
@@ -223,7 +220,7 @@ mod tests {
 
     #[test]
     fn test_decrypt_file() {
-        let key = "decrypt_file_key";
+        let key = &generate_key();
         let dir = std::env::temp_dir();
         let path = dir.join("decrypt_me.ini");
 
@@ -239,7 +236,7 @@ mod tests {
 
     #[test]
     fn test_mixed_content() {
-        let key = "mixed";
+        let key = &generate_key();
         let input = r#"
             visible = "true"
             secret1 = "ENCRYPT(one)"
